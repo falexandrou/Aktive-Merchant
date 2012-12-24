@@ -20,7 +20,46 @@ class PaypalExpress extends PaypalCommon
     const TEST_REDIRECT_URL = 'https://www.sandbox.paypal.com/cgi-bin/webscr?cmd=_express-checkout&token=';
     const LIVE_REDIRECT_URL = 'https://www.paypal.com/cgi-bin/webscr?cmd=_express-checkout&token=';
 
-    private $version = '63.0';
+    /**
+     * SOLUTIONTYPE Param values
+     * @see https://cms.paypal.com/us/cgi-bin/?cmd=_render-content&content_ID=developer/e_howto_api_nvp_r_SetExpressCheckout
+     *
+     *  - Sole: Buyer does not need to create a PayPal account to check out. This is referred to as PayPal Account Optional.
+     *  - Mark: Buyer must have a PayPal account to check out.
+     */
+    const SOLUTIONTYPE_SOLE         = 'Sole';
+    const SOLUTIONTYPE_MARK         = 'Mark';
+
+    /**
+     * LANDINGPAGE Param values
+     * @see https://cms.paypal.com/us/cgi-bin/?cmd=_render-content&content_ID=developer/e_howto_api_nvp_r_SetExpressCheckout
+     *
+     *  - Billing: Non-PayPal account
+     *  - Login: PayPal account login
+     */
+    const LANDINGPAGE_BILLING       = 'Billing';
+    const LANDINGPAGE_LOGIN         = 'Login';
+
+    // Recurring billing cycle
+    const RECURRING_DAY             = 'Day';
+    const RECURRING_WEEK            = 'Week';
+    const RECURRING_SEMIMONTH       = 'SemiMonth';
+    const RECURRING_MONTH           = 'Month';
+    const RECURRING_YEAR            = 'Year';
+
+    /**
+     * @var boolean whether billing is recurring
+     */
+    public $recurring = false;
+
+    /**
+     * @var string version
+     */
+    private $version = '65.0';
+
+    /**
+     * @var array options
+     */
     private $options = array();
     private $post = array();
     private $token;
@@ -30,11 +69,23 @@ class PaypalExpress extends PaypalCommon
     public static $homepage_url = 'https://www.paypal.com/cgi-bin/webscr?cmd=xpt/merchant/ExpressCheckoutIntro-outside';
     public static $display_name = 'PayPal Express Checkout';
 
+    /**
+     * @var string the value for SOLUTIONTYPE parameter
+     */
+    public static $solution_type = self::SOLUTIONTYPE_SOLE;
+
+    /**
+     * @var string the value for LANDINGPAGE parameter
+     */
+    public static $landing_page = self::LANDINGPAGE_BILLING;
+
     public function __construct($options = array())
     {
         $this->required_options('login, password, signature', $options);
 
         $this->options = $options;
+        if (isset($options['recurring']))
+            $this->recurring = (boolean)$options['recurring'];
 
         if (isset($options['version']))
             $this->version = $options['version'];
@@ -44,6 +95,8 @@ class PaypalExpress extends PaypalCommon
 
     /**
      * Method from Gateway overridden to allow negative values
+     * @param double
+     * @return string
      */
     public function amount($money)
     {
@@ -88,6 +141,37 @@ class PaypalExpress extends PaypalCommon
     }
 
     /**
+     * Setup a recurring payment profile
+     * 
+     * @param number $amount Total billing amount
+     * @param Array $options
+     *
+     * @return Response
+     */
+    public function recurring($amount, $options = array())
+    {
+        $this->recurring = true;
+        return $this->do_action($amount, 'Authorization', $options);
+    }
+
+    /**
+     * Get the recurring billing status
+     * @param string $profileId
+     */
+    public function recurringStatus($profileId)
+    {
+        if (empty($profileId))
+            throw new Exception("Profile ID parameter is required");
+        
+        $this->post = array(
+            'PROFILEID' => $profileId,
+            'METHOD'    => 'GetRecurringPaymentsProfileDetails',
+        );
+
+        return $this->commit('GetRecurringPaymentsProfileDetails');
+    }
+
+    /**
      * Setup Authorize and Purchase actions
      *
      * @param number $money  Total order amount
@@ -101,6 +185,11 @@ class PaypalExpress extends PaypalCommon
     public function setupAuthorize($money, $options = array())
     {
         return $this->setup($money, 'Authorization', $options);
+    }
+
+    public function setupRecurring($money, $options = array())
+    {
+        return $this->setup($money, 'Sale', $options);
     }
 
     /**
@@ -126,8 +215,15 @@ class PaypalExpress extends PaypalCommon
             'METHOD'               => 'SetExpressCheckout',
             'PAYMENTREQUEST_0_AMT' => $this->amount($money),
             'RETURNURL'            => $options['return_url'],
-            'CANCELURL'            => $options['cancel_return_url']
+            'CANCELURL'            => $options['cancel_return_url'],
+            'SOLUTIONTYPE'         => static::$solution_type,
+            'LANDINGPAGE'          => static::$landing_page,
         );
+
+        if ($this->recurring) {
+            $params['BILLINGTYPE'] = 'RecurringPayments';
+            $params['AMT'] = $money;
+        }
 
         if(isset($options['header_image']))
             $params['HDRIMG'] = $options['header_image'];
@@ -161,6 +257,12 @@ class PaypalExpress extends PaypalCommon
             'TOKEN'                => $options['token'],
             'PAYERID'              => $options['payer_id']
         );
+
+        if ($this->recurring) {
+            $params['METHOD'] = 'CreateRecurringPaymentsProfile';
+            $params['BILLINGTYPE'] = 'RecurringPayments';
+            $params['AMT'] = $money;
+        }
 
         $this->post = array_merge(
             $this->post, 
@@ -198,6 +300,14 @@ class PaypalExpress extends PaypalCommon
 
         if (isset($options['extra_options'])) {
             $params = array_merge($params, $options['extra_options']);
+        }
+
+        if ($this->recurring) {
+            $params['L_BILLINGTYPE0'] = 'RecurringPayments';
+            $params['BILLINGAGREEMENTDESCRIPTION'] = $params['DESC'] = isset($options['description']) ? $options['description'] : 'Recurring Billing';
+            $params['PROFILESTARTDATE']     = isset($options['start']) ? $options['start'] : date('Y-m-dTH:i:s');
+            $params['BILLINGPERIOD']        = isset($options['period']) ? $options['period'] : static::RECURRING_MONTH;
+            $params['BILLINGFREQUENCY']     = isset($options['frequency']) ? $options['frequency'] : 12;
         }
 
         return $params;

@@ -20,6 +20,46 @@ class PaypalExpressResponse extends Response
         return $this->params['EMAIL'];
     }
 
+    public function correlation_id()
+    {
+        return $this->params['CORRELATIONID'];
+    }
+
+    public function transaction_id()
+    {
+        return isset($this->params['PAYMENTINFO_0_TRANSACTIONID']) ? $this->params['PAYMENTINFO_0_TRANSACTIONID'] : null;
+    }
+
+    public function profile_id()
+    {
+        return isset($this->params['PROFILEID']) ? $this->params['PROFILEID'] : null;
+    }
+
+    public function phone()
+    {
+        return isset($this->params['PHONENUM']) ? $this->params['PHONENUM'] : null;
+    }
+
+    public function status()
+    {
+        return $this->params['STATUS'];
+    }
+
+    public function active()
+    {
+        return $this->params['STATUS'] == 'Active';
+    }
+
+    public function first_name()
+    {
+        return $this->params['FIRSTNAME'];
+    }
+
+    public function last_name()
+    {
+        return $this->params['LASTNAME'];
+    }
+
     public function name()
     {
         $first_name = $this->params['FIRSTNAME'];
@@ -53,6 +93,7 @@ class PaypalExpressResponse extends Response
         return array(
             'name' => $this->params['SHIPTONAME'],
             'address1' => $this->params['SHIPTOSTREET'],
+            'address2' => isset($this->params['SHIPTOSTREET2']) ? $this->params['SHIPTOSTREET2'] : null,
             'city' => $this->params['SHIPTOCITY'],
             'state' => $this->params['SHIPTOSTATE'],
             'zip' => $this->params['SHIPTOZIP'],
